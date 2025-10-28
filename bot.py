@@ -40,7 +40,8 @@ class CreateDeal(StatesGroup):
     entering = State()
 
 class SellerOnboarding(StatesGroup):
-    waiting_wallet = State()
+    waiting_accept = State()      # ждём Принять/Отклонить
+    waiting_requisite = State()   # ждём реквизиты продавца по методу оплаты
 
 class AdminFlow(StatesGroup):
     waiting_user_for_log   = State()
@@ -76,9 +77,22 @@ def t(lang: str, key: str) -> str:
         "wallet_invalid": "⚠️ Похоже, это не TON-адрес. Попробуйте снова.",
         "deal_expired": "⏳ Срок действия ордера истёк.",
 
-        # Seller onboarding
-        "seller_intro": "👋 Вы приглашены к сделке в <b>MoonGarant</b>. Сначала отправьте ваш TON-кошелёк.",
-        "seller_wallet_ok": "✅ Адрес кошелька принят.\nНажмите <b>«Принять ордер»</b>, чтобы начать.",
+        # Deep-link / creator self-open
+        "creator_open_link": "ℹ️ Вы уже являетесь создателем этого ордера.\nОтправьте ссылку второму участнику сделки.",
+
+        # Seller invite flow
+        "seller_invite": (
+            "👋 Вы приглашены в сделку в <b>MoonGarant</b>.\n\n"
+            "🧾 <b>Ордер</b>\n"
+            "<b>Название:</b> {title}\n"
+            "<b>Описание:</b> {desc}\n"
+            "<b>Оплата:</b> {price_label}\n\n"
+            "Если согласны — нажмите «Принять»."
+        ),
+        "accept_short": "✅ Принять",
+        "decline_short": "❌ Отклонить",
+        "seller_declined": "❌ Продавец отклонил приглашение. Сделка отменена.",
+
         "accept_btn": "✅ Принять ордер",
         "seller_details": (
             "🧾 <b>Ордер</b>\n"
@@ -93,6 +107,13 @@ def t(lang: str, key: str) -> str:
         "seller_final_needed": "💳 Покупатель отметил оплату.\nЕсли получили средства — нажмите «Подтвердить получение оплаты».",
         "seller_final_done": "🎉 Оплата подтверждена. Сделка завершена!",
 
+        # requisites prompts
+        "ask_requisite_ton": "Укажите <b>TON-адрес</b> вашего кошелька.",
+        "ask_requisite_stars": "Укажите <b>@username</b>, на который принимать ⭐ STARS.",
+        "ask_requisite_fiat": "Укажите <b>номер карты {method}</b> для оплаты.",
+        "ask_requisite_exchange": "Укажите ваши <b>реквизиты для обмена</b> (например: @user в STARS или TON-адрес).",
+        "bad_card": "⚠️ Нужен номер карты (минимум 8 цифр).",
+
         # Buyer side
         "buyer_notif_confirmed": "✅ Продавец подтвердил отправку по ордеру <b>{title}</b>.",
         "buyer_pay_prompt_std": (
@@ -102,7 +123,7 @@ def t(lang: str, key: str) -> str:
             "<b>Цена:</b> {price_value} {method}\n"
             "<b>Куда отправить NFT:</b> {target}\n\n"
             "💳 <b>Оплата</b>\n"
-            "<b>Кошелёк продавца:</b> <code>{seller_wallet}</code>\n"
+            "<b>Кошелёк/реквизиты продавца:</b> <code>{seller_wallet}</code>\n"
             "<b>Комментарий/MEMO:</b> <code>{memo}</code>\n\n"
             "⚠️ <b>Внимание!</b> Укажите <b>комментарий/MEMO</b> при переводе: <code>{memo}</code> — иначе оплата не будет засчитана!"
         ),
@@ -113,7 +134,7 @@ def t(lang: str, key: str) -> str:
             "<b>Обмен:</b> {exchange_desc}\n"
             "<b>Куда отправить NFT:</b> {target}\n\n"
             "💳 <b>Оплата</b>\n"
-            "<b>Кошелёк продавца:</b> <code>{seller_wallet}</code>\n"
+            "<b>Реквизиты продавца:</b> <code>{seller_wallet}</code>\n"
             "<b>Комментарий/MEMO:</b> <code>{memo}</code>\n\n"
             "⚠️ <b>Внимание!</b> Укажите <b>комментарий/MEMO</b> при переводе: <code>{memo}</code> — иначе оплата не будет засчитана!"
         ),
@@ -274,9 +295,6 @@ def back_to_menu(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=txt, callback_data="menu")]])
 
 def settings_kb(lang: str) -> InlineKeyboardMarkup:
-    # ряд RUB / USD / KZT (по клику — выбрать конкретную валюту)
-    # ниже STARS
-    # ниже TON и ОБМЕН
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="RUB", callback_data="pay:RUB"),
@@ -333,6 +351,15 @@ def accept_order_kb(lang: str, deal_id: str) -> InlineKeyboardMarkup:
     txt = t(lang, "accept_btn")
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=txt, callback_data=f"deal:{deal_id}:accept")],
+        [InlineKeyboardButton(text=("↩️ В меню" if lang == "ru" else "↩️ Menu"), callback_data="menu")]
+    ])
+
+def accept_decline_kb(lang: str, deal_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text=t(lang, "accept_short"),  callback_data=f"deal:{deal_id}:accept_invite"),
+            InlineKeyboardButton(text=t(lang, "decline_short"), callback_data=f"deal:{deal_id}:decline"),
+        ],
         [InlineKeyboardButton(text=("↩️ В меню" if lang == "ru" else "↩️ Menu"), callback_data="menu")]
     ])
 
@@ -443,9 +470,29 @@ async def cmd_start(m: Message, state: FSMContext):
         if not d or now() > d["expires_at"]:
             await show_panel(m.chat.id, t(lang, "deal_expired"), reply_markup=back_to_menu(lang))
             return
-        await show_panel(m.chat.id, t(lang, "seller_intro"))
+
+        # Если ссылку открыл создатель — подсказать отправить её второму участнику
+        if m.from_user.id == d.get("creator_id"):
+            await show_panel(m.chat.id, t(lang, "creator_open_link"), reply_markup=back_to_menu(lang))
+            return
+
+        # Если уже назначен продавец и это он — показать ему карточку управления
+        if d.get("seller_id") and m.from_user.id == d["seller_id"]:
+            price_label = d.get("exchange_desc") or (f"{d['price_value']} {d['method']}" if d.get("price_value") is not None else d.get("method"))
+            await show_panel(
+                m.chat.id,
+                t(lang, "seller_details").format(title=d["title"], desc=d["desc"], price_label=price_label, target=d["target_user"]),
+                reply_markup=seller_controls(lang, deal_id),
+            )
+            return
+
+        # Приглашение новому продавцу
+        price_label = d.get("exchange_desc") or (f"{d['price_value']} {d['method']}" if d.get("price_value") is not None else d.get("method"))
         await state.update_data(deal_id=deal_id)
-        await state.set_state(SellerOnboarding.waiting_wallet)
+        await show_panel(m.chat.id, t(lang, "seller_invite").format(
+            title=d["title"], desc=d["desc"], price_label=price_label
+        ), reply_markup=accept_decline_kb(lang, deal_id))
+        await state.set_state(SellerOnboarding.waiting_accept)
         return
 
     await show_panel(
@@ -485,7 +532,7 @@ async def admin_recent(c: CallbackQuery, state: FSMContext):
             sid = d.get("seller_id")
             cuser = memory.usernames.get(cid, f"id{cid}") if cid else "-"
             suser = memory.usernames.get(sid, f"id{sid}") if sid else "-"
-            price_label = d.get("exchange_desc") or f"{d.get('price','-')} {d.get('method','')}"
+            price_label = d.get("exchange_desc") or (f"{d.get('price_value','-')} {d.get('method','')}" if d.get("price_value") is not None else d.get("method"))
             rows.append(
                 f"<b>#{d.get('id')}</b> — {d.get('status','-')} — {price_label}\n"
                 f"🏷 {d.get('title','-')}\n"
@@ -664,8 +711,7 @@ async def cb_set_lang(c: CallbackQuery):
 async def cb_set_pay(c: CallbackQuery):
     uid = c.from_user.id
     method = c.data.split(":",1)[1]
-    # one of RUB/USD/KZT/STARS/TON/EXCHANGE
-    set_pay_method(uid, method)
+    set_pay_method(uid, method)  # RUB/USD/KZT/STARS/TON/EXCHANGE
     lang = get_lang(uid)
     await show_panel(c.message.chat.id, settings_text(uid), reply_markup=settings_kb(lang))
     await c.answer("Метод оплаты обновлён")
@@ -758,7 +804,6 @@ async def create_input(m: Message, state: FSMContext):
         draft["step"] = 3
     elif draft["step"] == 3:
         if method == "EXCHANGE":
-            # просто принимаем строку-описание обмена
             draft["exchange_desc"] = text
             draft["price_value"] = None
             draft["step"] = 4
@@ -798,7 +843,7 @@ async def create_input(m: Message, state: FSMContext):
             "seller_id": None,
             "seller_deadline": None,
             "deep_link": url,
-            "seller_wallet": None,
+            "seller_payto": None,  # универсальные реквизиты продавца (адрес/карта/@user и т.д.)
             "memo": None,
         }
         memory.deals[deal_id] = snapshot
@@ -812,43 +857,97 @@ async def create_input(m: Message, state: FSMContext):
 
     await show_panel(m.chat.id, prompt_for_step(uid, draft), reply_markup=create_nav_prev_only(lang, draft["step"]))
 
-# ---------- SELLER ONBOARDING ----------
-@dp.message(SellerOnboarding.waiting_wallet)
-async def seller_wallet(m: Message, state: FSMContext):
+# ---------- SELLER INVITE (accept/decline) ----------
+@dp.callback_query(F.data.regexp(r"^deal:[A-Za-z0-9_\-]+:(accept_invite|decline)$"))
+async def seller_invite_actions(c: CallbackQuery, state: FSMContext):
+    lang = get_lang(c.from_user.id)
+    parts = c.data.split(":")
+    _, deal_id, action = parts
+    d = memory.deals.get(deal_id)
+    if not d:
+        await show_panel(c.message.chat.id, t(lang, "deal_expired"), reply_markup=back_to_menu(lang))
+        await c.answer(); return
+
+    if action == "decline":
+        d["status"] = "stopped"
+        await show_panel(c.message.chat.id, t(lang, "seller_declined"), reply_markup=back_to_menu(lang))
+        try:
+            msg = await bot.send_message(d["creator_id"], f"❌ Продавец отклонил ордер <b>{d['title']}</b>.")
+            memory.all_msgs.setdefault(d["creator_id"], []).append((d["creator_id"], msg.message_id))
+        except Exception:
+            pass
+        memory.history.setdefault(d["creator_id"], []).insert(0, d.copy())
+        memory.deals.pop(deal_id, None)
+        await state.clear(); await c.answer(); return
+
+    # accept_invite → спросим реквизиты в зависимости от метода
+    method = d.get("method", "TON")
+    await state.update_data(deal_id=deal_id)
+    if method == "TON":
+        prompt = t(lang, "ask_requisite_ton")
+    elif method == "STARS":
+        prompt = t(lang, "ask_requisite_stars")
+    elif method in ("RUB", "USD", "KZT"):
+        prompt = t(lang, "ask_requisite_fiat").format(method=method)
+    else:  # EXCHANGE и прочие
+        prompt = t(lang, "ask_requisite_exchange")
+
+    await show_panel(c.message.chat.id, prompt, reply_markup=back_to_menu(lang))
+    await state.set_state(SellerOnboarding.waiting_requisite)
+    await c.answer()
+
+@dp.message(SellerOnboarding.waiting_requisite)
+async def seller_requisite(m: Message, state: FSMContext):
     remember_username(m.from_user)
     lang = get_lang(m.from_user.id)
     await add_user_msg(m)
-    txt = (m.text or "").strip()
-    if not is_ton_address(txt):
-        warn = await m.answer(t(lang, "wallet_invalid"))
-        set_warning(m.from_user.id, warn.message_id)
-        return
-
     data = await state.get_data()
     deal_id = data.get("deal_id")
     d = memory.deals.get(deal_id)
     if not d:
         await show_panel(m.chat.id, t(lang, "deal_expired"), reply_markup=back_to_menu(lang))
-        await state.clear()
-        return
+        await state.clear(); return
 
-    set_wallet(m.from_user.id, txt)
+    method = d.get("method", "TON")
+    txt = (m.text or "").strip()
+
+    def is_card(s: str) -> bool:
+        digits = "".join(ch for ch in s if ch.isdigit())
+        return len(digits) >= 8
+
+    # валидация по методу
+    if method == "TON":
+        if not is_ton_address(txt):
+            warn = await m.answer(t(lang, "wallet_invalid")); set_warning(m.from_user.id, warn.message_id); return
+    elif method == "STARS":
+        if not (txt.startswith("@") and len(txt) > 1):
+            warn = await m.answer(t(lang, "bad_user")); set_warning(m.from_user.id, warn.message_id); return
+    elif method in ("RUB", "USD", "KZT"):
+        if not is_card(txt):
+            warn = await m.answer(t(lang, "bad_card")); set_warning(m.from_user.id, warn.message_id); return
+    else:
+        if not txt:
+            warn = await m.answer(t(lang, "bad_card")); set_warning(m.from_user.id, warn.message_id); return
+
+    # Сохраняем продавца и его реквизиты
     d["seller_id"] = m.from_user.id
     d["seller_username"] = memory.usernames.get(m.from_user.id, f"id{m.from_user.id}")
-    d["seller_wallet"] = txt
+    d["seller_payto"] = txt   # универсальное поле (TON-адрес / карта / @user / др.)
     memory.deals[deal_id] = d
 
+    # чистим ввод реквизитов продавца
     try:
-        await bot.delete_message(m.chat.id, m.message_id)  # удалить сообщение с кошельком
+        await bot.delete_message(m.chat.id, m.message_id)
     except Exception:
         pass
     await clear_flow_messages(m.chat.id)
 
+    # показываем карточку продавцу с кнопками «Я перевёл(а) подарки) / Остановить»
     price_label = d.get("exchange_desc") or (f"{d['price_value']} {d['method']}" if d.get("price_value") is not None else d.get("method"))
     await show_panel(
         m.chat.id,
-        t(lang, "seller_wallet_ok"),
-        reply_markup=accept_order_kb(lang, deal_id),
+        t(lang, "seller_details").format(title=d["title"], desc=d["desc"], price_label=price_label, target=d["target_user"]),
+        reply_markup=seller_controls(lang, deal_id),
     )
     await state.clear()
 
@@ -888,8 +987,8 @@ async def seller_action(c: CallbackQuery):
         await c.answer(); return
 
     if action == "confirm":
-        if not d.get("seller_wallet"):
-            await c.answer("Сначала укажите кошелёк.", show_alert=True); return
+        if not d.get("seller_payto"):
+            await c.answer("Сначала укажите реквизиты.", show_alert=True); return
 
         delay = random.randint(4, 7)
         await show_panel(c.message.chat.id, "⏳ Обработка подтверждения...", reply_markup=None)
@@ -909,7 +1008,7 @@ async def seller_action(c: CallbackQuery):
                 t(buyer_lang, "buyer_notif_confirmed").format(title=d["title"]) + "\n\n" +
                 t(buyer_lang, "buyer_pay_prompt_ex").format(
                     title=d["title"], desc=d["desc"], exchange_desc=d["exchange_desc"],
-                    target=d["target_user"], seller_wallet=d["seller_wallet"], memo=memo
+                    target=d["target_user"], seller_wallet=d.get("seller_payto","—"), memo=memo
                 )
             )
         else:
@@ -917,7 +1016,7 @@ async def seller_action(c: CallbackQuery):
                 t(buyer_lang, "buyer_notif_confirmed").format(title=d["title"]) + "\n\n" +
                 t(buyer_lang, "buyer_pay_prompt_std").format(
                     title=d["title"], desc=d["desc"], price_value=d["price_value"], method=d["method"],
-                    target=d["target_user"], seller_wallet=d["seller_wallet"], memo=memo
+                    target=d["target_user"], seller_wallet=d.get("seller_payto","—"), memo=memo
                 )
             )
         await show_panel(d["creator_id"], buyer_text, reply_markup=buyer_pay_kb(buyer_lang, deal_id))
