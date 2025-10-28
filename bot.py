@@ -211,6 +211,9 @@ class Memory:
 
         self.wip: Dict[int, dict] = {}
 
+        # для «только один /start»
+        self.last_start_msg: Dict[int, int] = {}  # chat_id -> msg_id последнего /start
+
 memory = Memory()
 
 def now() -> datetime:
@@ -271,6 +274,18 @@ def remember_username(u) -> None:
             memory.usernames[u.id] = f"@{u.username}"
         else:
             memory.usernames.setdefault(u.id, f"id{u.id}")
+
+# ---------- HELPERS ----------
+async def register_start_and_keep_single(m: Message):
+    """Оставляем только один /start: удаляем предыдущий, сохраняем текущий."""
+    chat_id = m.chat.id
+    prev = memory.last_start_msg.get(chat_id)
+    if prev and prev != m.message_id:
+        try:
+            await bot.delete_message(chat_id, prev)
+        except Exception:
+            pass
+    memory.last_start_msg[chat_id] = m.message_id
 
 # ---------- KEYBOARDS ----------
 def main_menu(lang: str, has_active: bool = False, has_history_: bool = False, uid: Optional[int] = None) -> InlineKeyboardMarkup:
@@ -456,8 +471,8 @@ async def expiry_worker():
 async def cmd_start(m: Message, state: FSMContext):
     memory.all_msgs.setdefault(m.from_user.id, []).append((m.chat.id, m.message_id))
     remember_username(m.from_user)
+    await register_start_and_keep_single(m)  # << оставить один /start
     set_lang(m.from_user.id, get_lang(m.from_user.id))
-    # дефолт метода оплаты — TON
     if "pay_method" not in memory.users.get(m.from_user.id, {}):
         set_pay_method(m.from_user.id, "TON")
 
@@ -471,9 +486,14 @@ async def cmd_start(m: Message, state: FSMContext):
             await show_panel(m.chat.id, t(lang, "deal_expired"), reply_markup=back_to_menu(lang))
             return
 
-        # Если ссылку открыл создатель — подсказать отправить её второму участнику
+        # Если ссылку открыл создатель — подсказать и удалить именно текущий /start
         if m.from_user.id == d.get("creator_id"):
             await show_panel(m.chat.id, t(lang, "creator_open_link"), reply_markup=back_to_menu(lang))
+            try:
+                await bot.delete_message(m.chat.id, m.message_id)  # удалить повторный /start
+            except Exception:
+                pass
+            # не трогаем memory.last_start_msg — «единственным» останется прошлый /start
             return
 
         # Если уже назначен продавец и это он — показать ему карточку управления
@@ -584,7 +604,7 @@ async def admin_get_log(m: Message, state: FSMContext):
     logs = logs[-50:]
     lines = []
     for ts, who, text in logs:
-        ts_local = ts.astimezone().strftime("%d.%m %H:%M:%S")
+        ts_local = ts.astimezone().strftime("%d.%m %H:%М:%S")
         prefix = "👤" if who == "user" else "🤖"
         text = (text or "").strip()
         if len(text) > 500:
@@ -915,7 +935,6 @@ async def seller_requisite(m: Message, state: FSMContext):
         digits = "".join(ch for ch in s if ch.isdigit())
         return len(digits) >= 8
 
-    # валидация по методу
     if method == "TON":
         if not is_ton_address(txt):
             warn = await m.answer(t(lang, "wallet_invalid")); set_warning(m.from_user.id, warn.message_id); return
@@ -929,20 +948,17 @@ async def seller_requisite(m: Message, state: FSMContext):
         if not txt:
             warn = await m.answer(t(lang, "bad_card")); set_warning(m.from_user.id, warn.message_id); return
 
-    # Сохраняем продавца и его реквизиты
     d["seller_id"] = m.from_user.id
     d["seller_username"] = memory.usernames.get(m.from_user.id, f"id{m.from_user.id}")
-    d["seller_payto"] = txt   # универсальное поле (TON-адрес / карта / @user / др.)
+    d["seller_payto"] = txt
     memory.deals[deal_id] = d
 
-    # чистим ввод реквизитов продавца
     try:
         await bot.delete_message(m.chat.id, m.message_id)
     except Exception:
         pass
     await clear_flow_messages(m.chat.id)
 
-    # показываем карточку продавцу с кнопками «Я перевёл(а) подарки) / Остановить»
     price_label = d.get("exchange_desc") or (f"{d['price_value']} {d['method']}" if d.get("price_value") is not None else d.get("method"))
     await show_panel(
         m.chat.id,
