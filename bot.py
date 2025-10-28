@@ -58,7 +58,19 @@ def t(lang: str, key: str) -> str:
             "Выберите действие ниже:"
         ),
         "menu": "🏠 <b>Меню</b>",
-        "settings": "<b>⚙️ Настройки</b>\nВыберите язык интерфейса:",
+
+        # SETTINGS
+        "settings_title": "⚙️ Настройки",
+        "settings_prompt": (
+            "⚙️ <b>Настройки</b>\n\n"
+            "Текущий язык: <b>{lang_name}</b>\n"
+            "Текущий метод оплаты: <b>{pay_method}</b>\n\n"
+            "Выберите метод ниже:"
+        ),
+        "lang_menu_footer": "↩️ В меню / Menu",
+        "lang_ru": "🇷🇺 Русский",
+        "lang_en": "🇬🇧 English",
+
         "wallet_enter": "👛 <b>Кошелёк</b>\nОтправьте адрес вашего TON-кошелька.",
         "wallet_saved": "✅ Кошелёк сохранён: <code>{addr}</code>",
         "wallet_invalid": "⚠️ Похоже, это не TON-адрес. Попробуйте снова.",
@@ -72,7 +84,7 @@ def t(lang: str, key: str) -> str:
             "🧾 <b>Ордер</b>\n"
             "<b>Название:</b> {title}\n"
             "<b>Описание:</b> {desc}\n"
-            "<b>Цена:</b> {price} TON\n"
+            "<b>Цена/условия:</b> {price_label}\n"
             "<b>Отправить NFT (покупателю):</b> {target}\n\n"
             "После передачи нажмите «Я перевёл(а) подарки»."
         ),
@@ -83,11 +95,22 @@ def t(lang: str, key: str) -> str:
 
         # Buyer side
         "buyer_notif_confirmed": "✅ Продавец подтвердил отправку по ордеру <b>{title}</b>.",
-        "buyer_pay_prompt": (
+        "buyer_pay_prompt_std": (
             "🧾 <b>Детали ордера</b>\n"
             "<b>Название:</b> {title}\n"
             "<b>Описание:</b> {desc}\n"
-            "<b>Цена:</b> {price} TON\n"
+            "<b>Цена:</b> {price_value} {method}\n"
+            "<b>Куда отправить NFT:</b> {target}\n\n"
+            "💳 <b>Оплата</b>\n"
+            "<b>Кошелёк продавца:</b> <code>{seller_wallet}</code>\n"
+            "<b>Комментарий/MEMO:</b> <code>{memo}</code>\n\n"
+            "⚠️ <b>Внимание!</b> Укажите <b>комментарий/MEMO</b> при переводе: <code>{memo}</code> — иначе оплата не будет засчитана!"
+        ),
+        "buyer_pay_prompt_ex": (
+            "🧾 <b>Детали ордера</b>\n"
+            "<b>Название:</b> {title}\n"
+            "<b>Описание:</b> {desc}\n"
+            "<b>Обмен:</b> {exchange_desc}\n"
             "<b>Куда отправить NFT:</b> {target}\n\n"
             "💳 <b>Оплата</b>\n"
             "<b>Кошелёк продавца:</b> <code>{seller_wallet}</code>\n"
@@ -97,20 +120,30 @@ def t(lang: str, key: str) -> str:
         "buyer_wait_confirm": "⌛ Ожидайте подтверждения получения оплаты продавцом.",
         "buyer_final_done": "✅ Продавец подтвердил отправку по ордеру <b>{title}</b>.",
 
-        # Create flow prompts
+        # Create flow prompts (depend on pay method)
         "ask_title": "Введите <b>название</b> ордера.",
         "ask_desc": "Введите <b>описание</b> ордера (содержание подарков).",
-        "ask_price": "Введите <b>цену</b> в TON (например: <code>12.5</code>).",
+        "ask_price_std": "Введите <b>цену</b> в {method} (например: <code>12.5</code>).",
+        "ask_price_ex": "Укажите <b>условия обмена</b> в формате: <code>100 STARS -> 12 TON</code>.",
         "ask_user": "Укажите <b>@username</b> покупателя.",
         "bad_price": "⚠️ Нужно число (можно с точкой).",
         "bad_user": "⚠️ Укажите username в формате <code>@username</code>.",
 
         # Final card (buyer side)
-        "final": (
+        "final_std": (
             "🧾 <b>Детали ордера</b>\n\n"
             "<b>Название:</b> {title}\n"
             "<b>Описание:</b> {desc}\n"
-            "<b>Цена:</b> {price} TON\n"
+            "<b>Цена:</b> {price_value} {method}\n"
+            "<b>Куда отправить NFT:</b> {target}\n\n"
+            "После перехода продавца по ссылке у него будет <b>15 минут</b> на подтверждение отправки.\n\n"
+            "<b>Ссылка:</b> {link}"
+        ),
+        "final_ex": (
+            "🧾 <b>Детали ордера</b>\n\n"
+            "<b>Название:</b> {title}\n"
+            "<b>Описание:</b> {desc}\n"
+            "<b>Обмен:</b> {exchange_desc}\n"
             "<b>Куда отправить NFT:</b> {target}\n\n"
             "После перехода продавца по ссылке у него будет <b>15 минут</b> на подтверждение отправки.\n\n"
             "<b>Ссылка:</b> {link}"
@@ -138,6 +171,8 @@ def t(lang: str, key: str) -> str:
     }
     EN = RU
     return (RU if lang == "ru" else EN)[key]
+
+LANG_NAME = {"ru": "русский", "en": "english"}
 
 # ---------- MEMORY ----------
 class Memory:
@@ -171,6 +206,13 @@ def set_wallet(uid: int, w: str):
 
 def get_wallet(uid: int) -> Optional[str]:
     return memory.users.get(uid, {}).get("wallet")
+
+def get_pay_method(uid: int) -> str:
+    # Один из: RUB, USD, KZT, STARS, TON, EXCHANGE
+    return memory.users.get(uid, {}).get("pay_method") or "TON"
+
+def set_pay_method(uid: int, method: str):
+    memory.users.setdefault(uid, {})["pay_method"] = method
 
 def set_warning(uid: int, mid: Optional[int]):
     memory.users.setdefault(uid, {})["warn_id"] = mid
@@ -231,16 +273,27 @@ def back_to_menu(lang: str) -> InlineKeyboardMarkup:
     txt = "↩️ В меню" if lang == "ru" else "↩️ Menu"
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=txt, callback_data="menu")]])
 
-def lang_menu() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_ru"),
-                InlineKeyboardButton(text="🇬🇧 English", callback_data="lang_en"),
-            ],
-            [InlineKeyboardButton(text="↩️ В меню / Menu", callback_data="menu")],
-        ]
-    )
+def settings_kb(lang: str) -> InlineKeyboardMarkup:
+    # ряд RUB / USD / KZT (по клику — выбрать конкретную валюту)
+    # ниже STARS
+    # ниже TON и ОБМЕН
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="RUB", callback_data="pay:RUB"),
+            InlineKeyboardButton(text="USD", callback_data="pay:USD"),
+            InlineKeyboardButton(text="KZT", callback_data="pay:KZT"),
+        ],
+        [InlineKeyboardButton(text="⭐ STARS", callback_data="pay:STARS")],
+        [
+            InlineKeyboardButton(text="TON", callback_data="pay:TON"),
+            InlineKeyboardButton(text="🔁 Обмен", callback_data="pay:EXCHANGE"),
+        ],
+        [
+            InlineKeyboardButton(text=t("ru","lang_ru"), callback_data="lang_ru"),
+            InlineKeyboardButton(text=t("ru","lang_en"), callback_data="lang_en"),
+        ],
+        [InlineKeyboardButton(text=t("ru","lang_menu_footer"), callback_data="menu")]
+    ])
 
 def create_nav_prev_only(lang: str, step: int) -> InlineKeyboardMarkup:
     prev_txt = "⬅️ Пред" if lang == "ru" else "⬅️ Prev"
@@ -311,7 +364,6 @@ def admin_back_only_kb() -> InlineKeyboardMarkup:
 
 # ---------- PANEL / LOG ----------
 async def show_panel(chat_id: int, text: str, reply_markup: Optional[InlineKeyboardMarkup] = None):
-    # лог переписки бота
     memory.chatlog.setdefault(chat_id, []).append((now(), "bot", text))
     mid = memory.panel_id.get(chat_id)
     try:
@@ -323,7 +375,6 @@ async def show_panel(chat_id: int, text: str, reply_markup: Optional[InlineKeybo
                 reply_markup=reply_markup,
                 parse_mode=ParseMode.HTML,
             )
-            # учтём обновлённую панель в all_msgs (чтобы можно было удалить)
             memory.panel_id[chat_id] = msg.message_id
             memory.all_msgs.setdefault(chat_id, []).append((chat_id, msg.message_id))
             return
@@ -367,7 +418,6 @@ async def expiry_worker():
                 continue
             if d.get("expires_at") and now() > d["expires_at"]:
                 try:
-                    # трекаем уведомление, чтобы админ-пурж мог удалить
                     msg = await bot.send_message(d["creator_id"], t(d.get("lang", "ru"), "deal_expired"))
                     memory.all_msgs.setdefault(d["creator_id"], []).append((d["creator_id"], msg.message_id))
                 except Exception:
@@ -377,11 +427,13 @@ async def expiry_worker():
 # ---------- START ----------
 @dp.message(CommandStart())
 async def cmd_start(m: Message, state: FSMContext):
-    # Сохраняем и /start тоже, чтобы потом можно было удалить при тотальной чистке
     memory.all_msgs.setdefault(m.from_user.id, []).append((m.chat.id, m.message_id))
-
     remember_username(m.from_user)
     set_lang(m.from_user.id, get_lang(m.from_user.id))
+    # дефолт метода оплаты — TON
+    if "pay_method" not in memory.users.get(m.from_user.id, {}):
+        set_pay_method(m.from_user.id, "TON")
+
     lang = get_lang(m.from_user.id)
 
     args = (m.text or "").split(maxsplit=1)
@@ -418,7 +470,6 @@ async def cb_admin_panel(c: CallbackQuery, state: FSMContext):
     await state.clear()
     await show_panel(c.message.chat.id, t("ru","admin_title"), reply_markup=admin_panel_kb()); await c.answer()
 
-# --- Admin: последние сделки
 @dp.callback_query(F.data=="admin_recent")
 async def admin_recent(c: CallbackQuery, state: FSMContext):
     if not is_admin(c.from_user.id):
@@ -434,15 +485,15 @@ async def admin_recent(c: CallbackQuery, state: FSMContext):
             sid = d.get("seller_id")
             cuser = memory.usernames.get(cid, f"id{cid}") if cid else "-"
             suser = memory.usernames.get(sid, f"id{sid}") if sid else "-"
+            price_label = d.get("exchange_desc") or f"{d.get('price','-')} {d.get('method','')}"
             rows.append(
-                f"<b>#{d.get('id')}</b> — {d.get('status','-')} — {d.get('price','-')} TON\n"
+                f"<b>#{d.get('id')}</b> — {d.get('status','-')} — {price_label}\n"
                 f"🏷 {d.get('title','-')}\n"
                 f"👤 buyer: {cuser} • seller: {suser}\n"
             )
         text = "📊 <b>Последние сделки</b>\n\n" + "\n".join(rows)
     await show_panel(c.message.chat.id, text, reply_markup=admin_back_only_kb()); await c.answer()
 
-# --- Admin: история чата пользователя
 @dp.callback_query(F.data=="admin_chatlog")
 async def admin_chatlog(c: CallbackQuery, state: FSMContext):
     if not is_admin(c.from_user.id):
@@ -452,9 +503,7 @@ async def admin_chatlog(c: CallbackQuery, state: FSMContext):
 
 @dp.message(AdminFlow.waiting_user_for_log)
 async def admin_get_log(m: Message, state: FSMContext):
-    # всегда удаляем ввод админа после обработки
     to_delete = m.message_id
-
     if not is_admin(m.from_user.id):
         await m.answer(t("ru","not_admin"))
         try: await bot.delete_message(m.chat.id, to_delete)
@@ -472,7 +521,6 @@ async def admin_get_log(m: Message, state: FSMContext):
         except: uid = None
 
     if not uid:
-        # сообщаем и удаляем ввод
         await m.reply("Не нашёл пользователя. Введите @username или ID ещё раз.")
         try: await bot.delete_message(m.chat.id, to_delete)
         except Exception: pass
@@ -498,12 +546,9 @@ async def admin_get_log(m: Message, state: FSMContext):
     out = "🕓 <b>История чата</b>\n\n" + "\n".join(lines)
     await show_panel(m.chat.id, out, reply_markup=admin_back_only_kb())
     await state.clear()
-
-    # удалить ввод админа
     try: await bot.delete_message(m.chat.id, to_delete)
     except Exception: pass
 
-# --- Admin: удаление сообщений пользователя
 @dp.callback_query(F.data=="admin_purge")
 async def admin_purge(c: CallbackQuery, state: FSMContext):
     if not is_admin(c.from_user.id):
@@ -513,9 +558,7 @@ async def admin_purge(c: CallbackQuery, state: FSMContext):
 
 @dp.message(AdminFlow.waiting_user_for_purge)
 async def admin_do_purge(m: Message, state: FSMContext):
-    # удалим ввод админа после обработки
     to_delete = m.message_id
-
     if not is_admin(m.from_user.id):
         await m.answer(t("ru","not_admin"))
         try: await bot.delete_message(m.chat.id, to_delete)
@@ -538,7 +581,6 @@ async def admin_do_purge(m: Message, state: FSMContext):
         return
 
     removed = 0
-    # удалить все известные сообщения (включая /start, так как он тоже трекается)
     for (chat_id, mid) in list(memory.all_msgs.get(uid, [])):
         try:
             await bot.delete_message(chat_id, mid)
@@ -547,7 +589,6 @@ async def admin_do_purge(m: Message, state: FSMContext):
             pass
     memory.all_msgs[uid] = []
 
-    # удалить «панель» (если есть)
     try:
         pid = memory.panel_id.get(uid)
         if pid:
@@ -559,8 +600,6 @@ async def admin_do_purge(m: Message, state: FSMContext):
 
     await show_panel(m.chat.id, f"🧹 Удалено сообщений: <b>{removed}</b>\n\n" + t("ru","admin_purged"), reply_markup=admin_back_only_kb())
     await state.clear()
-
-    # удалить ввод админа
     try: await bot.delete_message(m.chat.id, to_delete)
     except Exception: pass
 
@@ -600,48 +639,103 @@ async def wallet_set(m: Message, state: FSMContext):
         warn = await m.answer(t(lang, "wallet_invalid"))
         set_warning(m.from_user.id, warn.message_id)
 
+def settings_text(uid: int) -> str:
+    lang = get_lang(uid)
+    lang_name = LANG_NAME.get(lang, lang)
+    method = get_pay_method(uid)
+    return t(lang, "settings_prompt").format(lang_name=lang_name, pay_method=method)
+
+@dp.callback_query(F.data == "settings")
+async def cb_settings(c: CallbackQuery):
+    uid = c.from_user.id
+    lang = get_lang(uid)
+    await show_panel(c.message.chat.id, settings_text(uid), reply_markup=settings_kb(lang))
+    await c.answer()
+
+@dp.callback_query(F.data.in_(["lang_ru", "lang_en"]))
+async def cb_set_lang(c: CallbackQuery):
+    uid = c.from_user.id
+    new_lang = "ru" if c.data.endswith("ru") else "en"
+    set_lang(uid, new_lang)
+    await show_panel(c.message.chat.id, settings_text(uid), reply_markup=settings_kb(new_lang))
+    await c.answer()
+
+@dp.callback_query(F.data.startswith("pay:"))
+async def cb_set_pay(c: CallbackQuery):
+    uid = c.from_user.id
+    method = c.data.split(":",1)[1]
+    # one of RUB/USD/KZT/STARS/TON/EXCHANGE
+    set_pay_method(uid, method)
+    lang = get_lang(uid)
+    await show_panel(c.message.chat.id, settings_text(uid), reply_markup=settings_kb(lang))
+    await c.answer("Метод оплаты обновлён")
+
 # ---------- CREATE FLOW ----------
 def wip(uid: int) -> dict:
-    return memory.wip.setdefault(uid, {"step": 1, "title": "", "desc": "", "price": None, "username": ""})
+    # price_value: float|None (для всех кроме EXCHANGE)
+    # exchange_desc: str|None (для EXCHANGE)
+    return memory.wip.setdefault(uid, {"step": 1, "title": "", "desc": "", "price_value": None, "exchange_desc": None, "username": ""})
 
-def prompt_for_step(lang: str, draft: dict) -> str:
+def prompt_for_step(uid: int, draft: dict) -> str:
+    lang = get_lang(uid)
     s = draft.get("step", 1)
-    return {1: t(lang, "ask_title"), 2: t(lang, "ask_desc"), 3: t(lang, "ask_price"), 4: t(lang, "ask_user")}[s]
+    if s == 1:
+        return t(lang, "ask_title")
+    if s == 2:
+        return t(lang, "ask_desc")
+    if s == 3:
+        method = get_pay_method(uid)
+        if method == "EXCHANGE":
+            return t(lang, "ask_price_ex")
+        else:
+            return t(lang, "ask_price_std").format(method=method)
+    if s == 4:
+        return t(lang, "ask_user")
+    return "..."
 
-def final_text(lang: str, snap: dict) -> str:
-    return t(lang, "final").format(
-        title=snap["title"], desc=snap["desc"], price=snap["price"], target=snap["target_user"], link=snap["deep_link"]
-    )
+def final_text(uid: int, snap: dict) -> str:
+    lang = get_lang(uid)
+    if snap.get("exchange_desc"):
+        return t(lang, "final_ex").format(
+            title=snap["title"], desc=snap["desc"], exchange_desc=snap["exchange_desc"], target=snap["target_user"], link=snap["deep_link"]
+        )
+    else:
+        return t(lang, "final_std").format(
+            title=snap["title"], desc=snap["desc"], price_value=snap["price_value"], method=snap["method"], target=snap["target_user"], link=snap["deep_link"]
+        )
 
 @dp.callback_query(F.data == "create")
 async def cb_create(c: CallbackQuery, state: FSMContext):
     remember_username(c.from_user)
-    lang = get_lang(c.from_user.id)
+    uid = c.from_user.id
+    lang = get_lang(uid)
     memory.user_msgs[c.message.chat.id] = []
-    draft = wip(c.from_user.id)
-    draft.update({"step": 1, "title": "", "desc": "", "price": None, "username": ""})
+    draft = wip(uid)
+    draft.update({"step": 1, "title": "", "desc": "", "price_value": None, "exchange_desc": None, "username": ""})
     await state.set_state(CreateDeal.entering)
-    await show_panel(c.message.chat.id, prompt_for_step(lang, draft), reply_markup=create_nav_prev_only(lang, draft["step"]))
+    await show_panel(c.message.chat.id, prompt_for_step(uid, draft), reply_markup=create_nav_prev_only(lang, draft["step"]))
     await c.answer()
 
 @dp.callback_query(F.data == "create_prev")
 async def cb_prev(c: CallbackQuery, state: FSMContext):
-    lang = get_lang(c.from_user.id)
-    draft = wip(c.from_user.id)
+    uid = c.from_user.id
+    lang = get_lang(uid)
+    draft = wip(uid)
     if draft["step"] > 1:
         draft["step"] -= 1
-    await show_panel(c.message.chat.id, prompt_for_step(lang, draft), reply_markup=create_nav_prev_only(lang, draft["step"]))
+    await show_panel(c.message.chat.id, prompt_for_step(uid, draft), reply_markup=create_nav_prev_only(lang, draft["step"]))
     await c.answer()
 
 @dp.callback_query(F.data == "create_cancel")
 async def cb_cancel(c: CallbackQuery, state: FSMContext):
-    lang = get_lang(c.from_user.id)
-    memory.wip[c.from_user.id] = {"step": 1, "title": "", "desc": "", "price": None, "username": ""}
+    uid = c.from_user.id
+    lang = get_lang(uid)
+    memory.wip[uid] = {"step": 1, "title": "", "desc": "", "price_value": None, "exchange_desc": None, "username": ""}
     await clear_flow_messages(c.message.chat.id)
     await show_panel(
         c.message.chat.id,
         t(lang, "hello"),
-        reply_markup=main_menu(lang, has_active_deal(c.from_user.id), has_history(c.from_user.id), uid=c.from_user.id),
+        reply_markup=main_menu(lang, has_active_deal(uid), has_history(uid), uid=uid),
     )
     await state.clear()
     await c.answer()
@@ -649,8 +743,10 @@ async def cb_cancel(c: CallbackQuery, state: FSMContext):
 @dp.message(CreateDeal.entering)
 async def create_input(m: Message, state: FSMContext):
     remember_username(m.from_user)
-    lang = get_lang(m.from_user.id)
-    draft = wip(m.from_user.id)
+    uid  = m.from_user.id
+    lang = get_lang(uid)
+    method = get_pay_method(uid)
+    draft = wip(uid)
     await add_user_msg(m)
     text = (m.text or "").strip()
 
@@ -661,17 +757,25 @@ async def create_input(m: Message, state: FSMContext):
         draft["desc"] = text
         draft["step"] = 3
     elif draft["step"] == 3:
-        try:
-            draft["price"] = float(text.replace(",", "."))
+        if method == "EXCHANGE":
+            # просто принимаем строку-описание обмена
+            draft["exchange_desc"] = text
+            draft["price_value"] = None
             draft["step"] = 4
-        except Exception:
-            warn = await m.answer(t(lang, "bad_price"))
-            set_warning(m.from_user.id, warn.message_id)
-            return
+        else:
+            try:
+                price = float(text.replace(",", "."))
+                draft["price_value"] = price
+                draft["exchange_desc"] = None
+                draft["step"] = 4
+            except Exception:
+                warn = await m.answer(t(lang, "bad_price"))
+                set_warning(uid, warn.message_id)
+                return
     elif draft["step"] == 4:
         if not (text.startswith("@") and len(text) > 1):
             warn = await m.answer(t(lang, "bad_user"))
-            set_warning(m.from_user.id, warn.message_id)
+            set_warning(uid, warn.message_id)
             return
         draft["username"] = text
 
@@ -679,11 +783,13 @@ async def create_input(m: Message, state: FSMContext):
         url = f"https://t.me/{BOT_USERNAME}?start=deal_{deal_id}"
         snapshot = {
             "id": deal_id,
-            "creator_id": m.from_user.id,
-            "creator_username": memory.usernames.get(m.from_user.id, f"id{m.from_user.id}"),
+            "creator_id": uid,
+            "creator_username": memory.usernames.get(uid, f"id{uid}"),
             "title": draft["title"],
             "desc": draft["desc"],
-            "price": draft["price"],
+            "price_value": draft["price_value"],   # float или None
+            "exchange_desc": draft["exchange_desc"],  # str или None
+            "method": method,                      # RUB/USD/KZT/STARS/TON/EXCHANGE
             "target_user": draft["username"],
             "lang": lang,
             "status": "new",
@@ -698,13 +804,13 @@ async def create_input(m: Message, state: FSMContext):
         memory.deals[deal_id] = snapshot
 
         await clear_flow_messages(m.chat.id)
-        await show_panel(m.chat.id, final_text(lang, snapshot), reply_markup=final_actions(lang, deal_id))
+        await show_panel(m.chat.id, final_text(uid, snapshot), reply_markup=final_actions(lang, deal_id))
 
-        memory.wip[m.from_user.id] = {"step": 1, "title": "", "desc": "", "price": None, "username": ""}
+        memory.wip[uid] = {"step": 1, "title": "", "desc": "", "price_value": None, "exchange_desc": None, "username": ""}
         await state.clear()
         return
 
-    await show_panel(m.chat.id, prompt_for_step(lang, draft), reply_markup=create_nav_prev_only(lang, draft["step"]))
+    await show_panel(m.chat.id, prompt_for_step(uid, draft), reply_markup=create_nav_prev_only(lang, draft["step"]))
 
 # ---------- SELLER ONBOARDING ----------
 @dp.message(SellerOnboarding.waiting_wallet)
@@ -738,6 +844,7 @@ async def seller_wallet(m: Message, state: FSMContext):
         pass
     await clear_flow_messages(m.chat.id)
 
+    price_label = d.get("exchange_desc") or (f"{d['price_value']} {d['method']}" if d.get("price_value") is not None else d.get("method"))
     await show_panel(
         m.chat.id,
         t(lang, "seller_wallet_ok"),
@@ -760,9 +867,10 @@ async def seller_action(c: CallbackQuery):
         return
 
     if action == "accept":
+        price_label = d.get("exchange_desc") or (f"{d['price_value']} {d['method']}" if d.get("price_value") is not None else d.get("method"))
         await show_panel(
             c.message.chat.id,
-            t(lang, "seller_details").format(title=d["title"], desc=d["desc"], price=d["price"], target=d["target_user"]),
+            t(lang, "seller_details").format(title=d["title"], desc=d["desc"], price_label=price_label, target=d["target_user"]),
             reply_markup=seller_controls(lang, deal_id),
         )
         await c.answer(); return
@@ -796,13 +904,22 @@ async def seller_action(c: CallbackQuery):
         await show_panel(c.message.chat.id, t(lang, "seller_confirmed_wait"), reply_markup=back_to_menu(lang))
 
         buyer_lang = get_lang(d["creator_id"])
-        buyer_text = (
-            t(buyer_lang, "buyer_notif_confirmed").format(title=d["title"]) + "\n\n" +
-            t(buyer_lang, "buyer_pay_prompt").format(
-                title=d["title"], desc=d["desc"], price=d["price"],
-                target=d["target_user"], seller_wallet=d["seller_wallet"], memo=memo
+        if d.get("exchange_desc"):
+            buyer_text = (
+                t(buyer_lang, "buyer_notif_confirmed").format(title=d["title"]) + "\n\n" +
+                t(buyer_lang, "buyer_pay_prompt_ex").format(
+                    title=d["title"], desc=d["desc"], exchange_desc=d["exchange_desc"],
+                    target=d["target_user"], seller_wallet=d["seller_wallet"], memo=memo
+                )
             )
-        )
+        else:
+            buyer_text = (
+                t(buyer_lang, "buyer_notif_confirmed").format(title=d["title"]) + "\n\n" +
+                t(buyer_lang, "buyer_pay_prompt_std").format(
+                    title=d["title"], desc=d["desc"], price_value=d["price_value"], method=d["method"],
+                    target=d["target_user"], seller_wallet=d["seller_wallet"], memo=memo
+                )
+            )
         await show_panel(d["creator_id"], buyer_text, reply_markup=buyer_pay_kb(buyer_lang, deal_id))
         await c.answer(); return
 
@@ -877,7 +994,7 @@ async def cb_current(c: CallbackQuery):
         await c.answer(); return
 
     d = sorted(active, key=lambda x: x["created_at"], reverse=True)[0]
-    txt = final_text(lang, d)
+    txt = final_text(c.from_user.id, d)
     await show_panel(
         c.message.chat.id,
         t(lang, "current_title") + "\n\n" + txt,
@@ -901,27 +1018,10 @@ async def cb_history(c: CallbackQuery):
             except Exception: when = "-"
         else:
             when = "-"
-        lines.append(f"{i}. <b>{d.get('title') or '[title]'}</b> — {d.get('price','-')} TON — {d.get('status','done')} — {when}")
+        price_label = d.get("exchange_desc") or (f"{d['price_value']} {d['method']}" if d.get("price_value") is not None else d.get("method"))
+        lines.append(f"{i}. <b>{d.get('title') or '[title]'}</b> — {price_label} — {d.get('status','done')} — {when}")
 
     await show_panel(c.message.chat.id, t(lang, "history_title") + "\n\n" + "\n".join(lines), reply_markup=back_to_menu(lang))
-    await c.answer()
-
-# ---------- SETTINGS / LANG ----------
-@dp.callback_query(F.data == "settings")
-async def cb_settings(c: CallbackQuery):
-    lang = get_lang(c.from_user.id)
-    await show_panel(c.message.chat.id, t(lang, "settings"), reply_markup=lang_menu())
-    await c.answer()
-
-@dp.callback_query(F.data.in_(["lang_ru", "lang_en"]))
-async def cb_set_lang(c: CallbackQuery):
-    new_lang = "ru" if c.data.endswith("ru") else "en"
-    set_lang(c.from_user.id, new_lang)
-    await show_panel(
-        c.message.chat.id,
-        t(new_lang, "hello"),
-        reply_markup=main_menu(new_lang, has_active_deal(c.from_user.id), has_history(c.from_user.id), uid=c.from_user.id),
-    )
     await c.answer()
 
 # ---------- MENU ----------
@@ -952,7 +1052,7 @@ async def inline_share(iq: InlineQuery):
                 InlineQueryResultArticle(
                     id=deal_id,
                     title="MoonGarant • Ссылка на сделку",
-                    description=f"{d['price']} TON • {d['target_user']}",
+                    description=(d.get("exchange_desc") or f"{d.get('price_value')} {d.get('method')}") + f" • {d['target_user']}",
                     input_message_content=InputTextMessageContent(message_text=text, parse_mode=ParseMode.HTML),
                 )
             )
